@@ -1,0 +1,44 @@
+# ─────────────────────────────────────────────────────────────
+# SECRETS — never commit real credentials. Only *.env.example is tracked.
+# ─────────────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# ─── Node / Next.js (frontend, backend) ───
+node_modules/
+.pnpm-store/
+.next/
+out/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+next-env.d.ts
+npm-debug.log*
+pnpm-debug.log*
+
+# ─── Python (agent) ───
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+htmlcov/
+.coverage
+
+# ─── Local infra volumes ───
+.docker-data/
+
+# ─── OS / Editor ───
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json

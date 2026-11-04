@@ -1,0 +1,49 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens — single source: DESIGN.md §2 (Harvey-inspired Obsidian palette).
+ * Exposed as Tailwind v4 theme utilities, e.g. `bg-canvas`, `text-primary`,
+ * `border-hairline`, `text-status-violation`, `font-display`, `font-mono`.
+ */
+@theme {
+    --color-canvas: #0c0d0e;
+    --color-surface: #131518;
+    --color-elevated: #1a1d21;
+    --color-subtle: #22262b;
+
+    --color-hairline: rgb(255 255 255 / 0.08);
+    --color-focus: rgb(255 255 255 / 0.22);
+
+    --color-primary: #f5f5f7;
+    --color-secondary: #a0a4ab;
+    --color-tertiary: #636770;
+
+    --color-status-compliant: #10b981;
+    --color-status-compliant-bg: rgb(16 185 129 / 0.08);
+    --color-status-violation: #f43f5e;
+    --color-status-violation-bg: rgb(244 63 94 / 0.08);
+    --color-status-ambiguous: #f59e0b;
+    --color-status-ambiguous-bg: rgb(245 158 11 / 0.08);
+    --color-status-revised: #60a5fa;
+    --color-status-revised-bg: rgb(96 165 250 / 0.08);
+
+    --font-display: var(--font-newsreader), Georgia, serif;
+    --font-sans: var(--font-inter), system-ui, sans-serif;
+    --font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
+
+    /* DESIGN.md §6 motion standard */
+    --ease-snappy: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+html,
+body {
+    background: var(--color-canvas);
+    color: var(--color-primary);
+    font-family: var(--font-sans);
+}
+
+/* Temporary warm highlight after a matrix → document jump (useAuditStore) */
+.clause-jump-highlight {
+    background-color: var(--color-status-ambiguous-bg);
+    transition: background-color 200ms var(--ease-snappy);
+}
