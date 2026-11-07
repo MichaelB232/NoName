@@ -1,7 +1,4 @@
-"""LangGraph state shared by every node (ADR-0002)."""
-
 from typing import TypedDict
-
 from app.schemas.report import ComplianceMatrixItem
 
 
@@ -14,3 +11,4 @@ class AuditState(TypedDict):
     findings: list[ComplianceMatrixItem]
     step_count: int
     status: str
+

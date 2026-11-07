@@ -1,21 +1,13 @@
-"""Deterministic financial calculations (.agents/AGENTS.md §1.2).
-
-The LLM NEVER computes numbers. It only extracts inputs; these pure functions do the math.
-
-IMPORTANT: regulatory caps are NOT hardcoded here. The caller must pass a cap that
-was retrieved from a verified source (Qdrant regulation chunk / admin-maintained
-config) together with its citation. This keeps the tool free of invented statutes.
-"""
-
 from decimal import ROUND_HALF_UP, Decimal
-
 from pydantic import BaseModel, Field
 
 
 class InterestCapInput(BaseModel):
     contract_daily_rate_percent: Decimal = Field(ge=0)
     regulatory_cap_daily_percent: Decimal = Field(ge=0)
-    cap_source_citation: str = Field(min_length=1, description="Where the cap came from (verified)")
+    cap_source_citation: str = Field(
+        min_length=1, description="Where the cap came from (verified)"
+    )
     principal_idr: Decimal = Field(ge=0)
     tenor_days: int = Field(ge=1)
 
@@ -28,11 +20,12 @@ class InterestCapResult(BaseModel):
 
 
 def evaluate_interest_cap(data: InterestCapInput) -> InterestCapResult:
-    """Compare a contract's daily rate against a verified cap and quantify the overage (simple interest)."""
-    excess_rate = max(Decimal(0), data.contract_daily_rate_percent - data.regulatory_cap_daily_percent)
-    excess_idr = (data.principal_idr * excess_rate / Decimal(100) * data.tenor_days).quantize(
-        Decimal("1"), rounding=ROUND_HALF_UP
+    excess_rate = max(
+        Decimal(0), data.contract_daily_rate_percent - data.regulatory_cap_daily_percent
     )
+    excess_idr = (
+        data.principal_idr * excess_rate / Decimal(100) * data.tenor_days
+    ).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
     return InterestCapResult(
         is_within_cap=excess_rate == 0,
         excess_daily_rate_percent=excess_rate,

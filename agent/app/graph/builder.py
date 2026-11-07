@@ -1,46 +1,68 @@
-"""Audit pipeline graph skeleton (ai-agent-rag-standards skill §1).
-
-    clause_parser → compliance_auditor → risk_evaluator → legal_drafter → END
-
-Nodes are placeholders: each only advances `step_count` so the wiring and the
-MAX_STEPS guardrail can be tested before real LLM logic is added.
-"""
-
 from collections.abc import Callable
+from typing import Any
 
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from app.core.config import get_settings
 from app.graph.state import AuditState
+from app.graph.nodes.clause_parser import clause_parser_node
+from app.graph.nodes.compliance_auditor import compliance_auditor_node
+from app.graph.nodes.risk_evaluator import risk_evaluator_node
+from app.graph.nodes.legal_drafter import legal_drafter_node
 
-NODE_ORDER: tuple[str, ...] = ("clause_parser", "compliance_auditor", "risk_evaluator", "legal_drafter")
+# Pemetaan nama node ke fungsi aslinya
+NODE_MAP: dict[str, Callable[[AuditState], dict[str, Any]]] = {
+    "clause_parser": clause_parser_node,
+    "compliance_auditor": compliance_auditor_node,
+    "risk_evaluator": risk_evaluator_node,
+    "legal_drafter": legal_drafter_node,
+}
+
+# Urutan eksekusi alur kerja audit
+NODE_ORDER: tuple[str, ...] = (
+    "clause_parser",
+    "compliance_auditor",
+    "risk_evaluator",
+    "legal_drafter",
+)
 
 
 class MaxStepsExceededError(RuntimeError):
-    """Raised when the graph exceeds AGENT_MAX_STEPS (.agents/AGENTS.md §1.3)."""
+    """Raised when the graph exceeds AGENT_MAX_STEPS"""
 
+def _guarded(
+    name: str, node_func: Callable[[AuditState], dict[str, Any]]
+) -> Callable[[AuditState], dict[str, Any]]:
+    def wrapper(state: AuditState) -> dict[str, Any]:
+        try:
+            max_steps = get_settings().agent_max_steps
+        except Exception:
+            max_steps = 5
 
-def _guarded(name: str) -> Callable[[AuditState], dict[str, object]]:
-    def node(state: AuditState) -> dict[str, object]:
-        max_steps = get_settings().agent_max_steps
-        next_step = state["step_count"] + 1
-        if next_step > max_steps:
-            raise MaxStepsExceededError(f"Exceeded MAX_STEPS={max_steps} at node '{name}'")
-        # TODO(phase-3): replace with real node logic (Tier-1/Tier-2 Gemini + deterministic tools).
-        return {"step_count": next_step, "status": name}
+        current_steps = state.get("step_count", 0)
+        if current_steps >= max_steps:
+            raise MaxStepsExceededError(
+                f"Exceeded MAX_STEPS={max_steps} at node '{name}'"
+            )
 
-    return node
+        return node_func(state)
+
+    return wrapper
 
 
 def build_audit_graph() -> CompiledStateGraph:
     graph: StateGraph = StateGraph(AuditState)
+
     for name in NODE_ORDER:
-        graph.add_node(name, _guarded(name))
+        node_fn = NODE_MAP[name]
+        graph.add_node(name, _guarded(name, node_fn))
 
     graph.set_entry_point(NODE_ORDER[0])
+
     for current, following in zip(NODE_ORDER, NODE_ORDER[1:], strict=False):
         graph.add_edge(current, following)
+
     graph.add_edge(NODE_ORDER[-1], END)
 
     return graph.compile()

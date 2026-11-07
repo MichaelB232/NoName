@@ -1,13 +1,5 @@
 import { z } from "zod";
 
-/**
- * Single source of truth for runtime configuration.
- *
- * - Every credential comes from the environment; nothing is hardcoded.
- * - Validated once at boot. If anything is missing/invalid the process exits
- *   with a readable list of problems (fail-fast, never run half-configured).
- * - Import `env` everywhere instead of reading `process.env` directly.
- */
 const envSchema = z.object({
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
     PORT: z.coerce.number().int().positive().default(4000),
@@ -48,7 +40,6 @@ function loadEnv(): Env {
         const problems = parsed.error.issues
             .map((issue) => `  - ${issue.path.join(".")}: ${issue.message}`)
             .join("\n");
-        // Logger is not available yet (it depends on env), so use stderr directly.
         process.stderr.write(`\n[config] Invalid environment configuration:\n${problems}\n\n`);
         process.exit(1);
     }

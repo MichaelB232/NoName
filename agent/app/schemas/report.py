@@ -1,8 +1,3 @@
-"""Structured agent output contracts (ai-agent-rag-standards skill §3).
-
-Every LLM response is parsed into these models. Free-form text never leaves the graph.
-"""
-
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -16,7 +11,6 @@ class LegalCitation(BaseModel):
     verified: bool = Field(
         description="False when no Qdrant chunk met the score threshold → UNVERIFIED_CITATION",
     )
-
 
 class ComplianceMatrixItem(BaseModel):
     clause_number: str = Field(description="e.g. Pasal 5.2")
@@ -39,7 +33,6 @@ class ComplianceAuditReport(BaseModel):
 
 
 class AuditJobRequest(BaseModel):
-    """Payload sent by the backend to start an audit."""
 
     contract_id: str = Field(min_length=1)
     organization_id: str = Field(min_length=1)

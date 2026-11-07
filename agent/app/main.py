@@ -1,8 +1,3 @@
-"""FastAPI entrypoint for the agent service.
-
-Run locally:  uv run uvicorn app.main:app --reload --port 8000
-"""
-
 import logging
 
 from fastapi import FastAPI, Request

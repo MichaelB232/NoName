@@ -7,7 +7,9 @@
 **/.env
 **/.env.*
 !**/.env.example
-
+HOMEPAGE.md
+DESIGN.md
+WORKFLOW.md
 # ─── Node / Next.js (frontend, backend) ───
 node_modules/
 .pnpm-store/
