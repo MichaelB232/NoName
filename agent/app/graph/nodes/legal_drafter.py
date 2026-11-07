@@ -1,23 +1,9 @@
-"""Node 4: Legal Drafter Agent (100% Dinamis via Gemini).
-
-Menulis ulang klausul bermasalah menjadi draf perbaikan resmi (suggested_revision)
-menggunakan LLM berdaya nalar tinggi dengan tetap mempertahankan gaya bahasa kontrak asli.
-"""
-
-import os
 from typing import Any
-from dotenv import load_dotenv
-from google import genai
 
+from app.core.clients import get_gemini_client
+from app.core.config import get_settings
 from app.graph.state import AuditState
 from app.schemas.report import ComplianceMatrixItem
-
-load_dotenv(".env")
-
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-MODEL_NAME = os.getenv("GEMINI_MODEL_TIER2") or os.getenv("GEMINI_MODEL_TIER1", "gemini-2.5-flash")
-
-gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
 FALLBACK_INTEREST = (
     "Suku bunga pinjaman disepakati sebesar 0,1% per hari kalender dari sisa pokok pinjaman, "
@@ -31,9 +17,12 @@ FALLBACK_PDP = (
 
 
 def draft_clause_with_ai(finding: ComplianceMatrixItem) -> str:
-    """Memanggil Gemini untuk merevisi klausul secara dinamis."""
+    gemini_client = get_gemini_client()
     if not gemini_client:
         return FALLBACK_INTEREST if "Suku Bunga" in finding.topic else FALLBACK_PDP
+
+    settings = get_settings()
+    model_name = settings.gemini_model_tier2 or settings.gemini_model_tier1
 
     try:
         system_instruction = (
@@ -61,7 +50,7 @@ def draft_clause_with_ai(finding: ComplianceMatrixItem) -> str:
         )
 
         response = gemini_client.models.generate_content(
-            model=MODEL_NAME,
+            model=model_name,
             contents=prompt,
             config=dict(
                 system_instruction=system_instruction,
@@ -78,7 +67,6 @@ def draft_clause_with_ai(finding: ComplianceMatrixItem) -> str:
 
 
 def legal_drafter_node(state: AuditState) -> dict[str, Any]:
-    """Node resmi LangGraph: Menghasilkan usulan revisi dinamis untuk seluruh pelanggaran."""
     findings = state.get("findings", [])
     updated_findings: list[ComplianceMatrixItem] = []
 
@@ -90,5 +78,5 @@ def legal_drafter_node(state: AuditState) -> dict[str, Any]:
     return {
         "findings": updated_findings,
         "step_count": state.get("step_count", 0) + 1,
-        "status": "audit_completed",
+        "status": "legal_drafter",
     }

@@ -6,12 +6,12 @@ from decimal import Decimal
 from typing import Any, Literal
 
 from google import genai
-from pydantic import BaseModel, Field, model_validator
 from qdrant_client import QdrantClient
 
+from app.core.clients import get_gemini_client, get_qdrant_client
 from app.core.config import get_settings
 from app.graph.state import AuditState
-from app.schemas.report import ComplianceMatrixItem, LegalCitation
+from app.schemas.report import ComplianceMatrixItem, LegalCitation, LLMAuditResult
 from app.tools.interest_calculator import InterestCapInput, evaluate_interest_cap
 
 logger = logging.getLogger(__name__)
@@ -29,92 +29,6 @@ FORBIDDEN_DATA_KEYWORDS = [
     "media sosial",
     "daftar panggilan",
 ]
-
-class LLMAuditResult(BaseModel):
-    status: Literal["COMPLIANT", "VIOLATION", "AMBIGUOUS", "UNVERIFIED_CITATION"] = Field(
-        default="COMPLIANT", description="COMPLIANT, VIOLATION, AMBIGUOUS, or UNVERIFIED_CITATION"
-    )
-    severity: Literal["HIGH", "MEDIUM", "LOW", "CLEAN"] = Field(
-        default="CLEAN", description="HIGH, MEDIUM, LOW, or CLEAN"
-    )
-    topic: str | None = Field(default="Ketentuan Umum", description="Short topic of the clause")
-    violated_chunk_index: int | None = Field(default=None)
-    legal_rationale: str = Field(default="Klausul telah dianalisis dan dinyatakan patuh.")
-
-    @model_validator(mode="before")
-    @classmethod
-    def normalize_llm_dict(cls, data: Any) -> Any:
-        if not isinstance(data, dict):
-            return data
-
-        # Normalize status
-        raw_status = str(data.get("status") or "").strip().upper()
-        if raw_status in ("COMPLIANT", "VIOLATION", "AMBIGUOUS", "UNVERIFIED_CITATION"):
-            data["status"] = raw_status
-        elif "VIOLAT" in raw_status:
-            data["status"] = "VIOLATION"
-        elif "AMBIG" in raw_status:
-            data["status"] = "AMBIGUOUS"
-        else:
-            data["status"] = "COMPLIANT"
-
-        # Normalize severity
-        raw_severity = data.get("severity")
-        if isinstance(raw_severity, str):
-            sev_upper = raw_severity.strip().upper()
-            if sev_upper in ("HIGH", "MEDIUM", "LOW", "CLEAN"):
-                data["severity"] = sev_upper
-            elif sev_upper in ("NONE", "N/A", "NULL", "ZERO", "NO", ""):
-                data["severity"] = "CLEAN"
-            else:
-                data["severity"] = "HIGH" if data["status"] == "VIOLATION" else "CLEAN"
-        else:
-            # Handle null/None or missing severity
-            if data["status"] == "VIOLATION":
-                data["severity"] = "HIGH"
-            elif data["status"] == "AMBIGUOUS":
-                data["severity"] = "LOW"
-            else:
-                data["severity"] = "CLEAN"
-
-        return data
-
-
-def _get_qdrant_client() -> QdrantClient | None:
-    try:
-        settings = get_settings()
-        api_key = (
-            settings.qdrant_api_key.get_secret_value()
-            if settings.qdrant_api_key
-            else None
-        )
-        with warnings.catch_warnings():
-            warnings.filterwarnings(
-                "ignore",
-                category=UserWarning,
-                message=".*(Api key is used with an insecure connection|Failed to obtain server version).*",
-            )
-            return QdrantClient(
-                url=settings.qdrant_url,
-                api_key=api_key,
-                timeout=2.0,
-                check_compatibility=False,
-            )
-    except Exception as exc:
-        logger.warning("Failed to initialize Qdrant client: %s", exc)
-        return None
-
-
-def _get_gemini_client() -> genai.Client | None:
-    try:
-        settings = get_settings()
-        api_key = settings.gemini_api_key.get_secret_value()
-        if not api_key:
-            return None
-        return genai.Client(api_key=api_key)
-    except Exception as exc:
-        logger.warning("Failed to initialize Gemini client: %s", exc)
-        return None
 
 
 def retrieve_regulatory_chunks(
@@ -168,12 +82,10 @@ def audit_clause_with_rag(
             limit=3,
         )
 
-    # 2. Deterministic Math with DYNAMIC Qdrant Statutory Citation
     rate_match = RATE_REGEX.search(text)
     if rate_match:
         extracted_rate = Decimal(rate_match.group(1))
 
-        # Cari apakah ada chunk dari Qdrant yang membahas batas bunga / manfaat ekonomi
         matched_chunk: dict[str, Any] | None = None
         for ch in retrieved_chunks:
             ch_text = (ch.get("text") or "").lower()
@@ -228,7 +140,6 @@ def audit_clause_with_rag(
                 ),
             )
 
-    # 3. Agentic Evaluation with Gemini LLM (Tier 2 / Tier 1 fallback)
     if gemini_client and retrieved_chunks:
         try:
             settings = get_settings()
@@ -315,7 +226,6 @@ def audit_clause_with_rag(
                 "LLM evaluation failed, falling back to rule-based audit: %s", exc
             )
 
-    # 4. Fallback Rule-Based Evaluation (Offline / Guardrail Fallback)
     if any(keyword in text_lower for keyword in FORBIDDEN_DATA_KEYWORDS):
         return ComplianceMatrixItem(
             clause_number=clause_number,
@@ -358,8 +268,8 @@ def compliance_auditor_node(state: AuditState) -> dict[str, Any]:
     clauses = state.get("clauses", [])
     findings: list[ComplianceMatrixItem] = []
 
-    qdrant_client = _get_qdrant_client()
-    gemini_client = _get_gemini_client()
+    qdrant_client = get_qdrant_client()
+    gemini_client = get_gemini_client()
 
     for clause in clauses:
         finding = audit_clause_with_rag(clause, qdrant_client, gemini_client)

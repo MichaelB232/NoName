@@ -1,87 +1,55 @@
-import os
+from decimal import Decimal
+import re
 from typing import Any
-from dotenv import load_dotenv
-from google import genai
 
 from app.graph.state import AuditState
 from app.schemas.report import ComplianceMatrixItem
+from app.tools.interest_calculator import InterestCapInput, evaluate_interest_cap
 
-load_dotenv(".env")
-
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-MODEL_NAME = os.getenv("GEMINI_MODEL_TIER2") or os.getenv(
-    "GEMINI_MODEL_TIER1"
-)
-gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
-
-FALLBACK_INTEREST = (
-    "Suku bunga pinjaman disepakati sebesar 0,1% per hari kalender dari sisa pokok pinjaman, "
-    "dengan ketentuan total seluruh manfaat ekonomi tidak melebihi 100% dari pokok pinjaman "
-    "sesuai POJK No. 10/POJK.05/2022 dan SE OJK No. 19/SEOJK.06/2023."
-)
-FALLBACK_PDP = (
-    "Pemberi Layanan hanya memproses data pribadi Peminjam dengan persetujuan tegas. "
-    "Akses perangkat dibatasi hanya pada fitur Camera, Audio, dan Location (CAM) sesuai UU PDP No. 27/2022."
+OJK_DAILY_RATE_CAP = Decimal("0.10")
+UU_PDP_STATUTORY_MAX_FINE = 5_000_000_000  # Maksimal Rp 5 Miliar (Pasal 67 UU PDP)
+RATE_REGEX = re.compile(
+    r"(\d+(?:\.\d+)?)\s*%\s*(?:per\s+hari|harian|\/\s*hari)", re.IGNORECASE
 )
 
 
-def draft_clause_with_ai(finding: ComplianceMatrixItem) -> str:
-    if not gemini_client:
-        return FALLBACK_INTEREST if "Suku Bunga" in finding.topic else FALLBACK_PDP
+def calculate_clause_risk(item: ComplianceMatrixItem) -> int:
+    if item.status != "VIOLATION":
+        return 0
 
-    try:
-        system_instruction = (
-            "Anda adalah Senior Legal Counsel Indonesia spesialis Hukum Perbankan dan FinTech.\n"
-            "Tugas Anda: Menulis ulang (redraft) klausul kontrak yang melanggar agar 100% PATUH pada regulasi terkait.\n"
-            "ATURAN MUTLAK:\n"
-            "1. Pertahankan gaya bahasa, struktur kalimat, dan istilah para pihak dari klausul aslinya.\n"
-            "2. Sesuaikan substansi yang melanggar dengan ketentuan undang-undang yang dilanggar.\n"
-            "3. Keluarkan HANYA teks klausul hasil revisi final dalam Bahasa Indonesia hukum baku tanpa kalimat pengantar atau basa-basi."
-        )
-
-        reg_info = ""
-        if finding.violated_regulation:
-            reg_info = (
-                f"Regulasi yang Dilanggar: {finding.violated_regulation.regulation_name} "
-                f"({finding.violated_regulation.article})\n"
-                f'Rujukan Bunyi Aturan: "{finding.violated_regulation.article_quote}"\n'
+    text = item.original_text
+    topic_lower = item.topic.lower()
+    rate_match = RATE_REGEX.search(text)
+    if rate_match or "bunga" in topic_lower or "interest" in topic_lower:
+        extracted_rate = Decimal(rate_match.group(1)) if rate_match else Decimal("0.45")
+        calc_result = evaluate_interest_cap(
+            InterestCapInput(
+                contract_daily_rate_percent=extracted_rate,
+                regulatory_cap_daily_percent=OJK_DAILY_RATE_CAP,
+                cap_source_citation="SE OJK No. 19/SEOJK.06/2023",
+                principal_idr=Decimal(1_000_000),
+                tenor_days=30,
             )
-
-        prompt = (
-            f'Klausul Asli Kontrak:\n"{finding.original_text}"\n\n'
-            f"{reg_info}"
-            f"Catatan Pelanggaran: {finding.legal_rationale}\n\n"
-            f"Tuliskan draf klausul perbaikan yang patuh:"
         )
+        return int(calc_result.excess_interest_idr)
 
-        response = gemini_client.models.generate_content(
-            model=MODEL_NAME,
-            contents=prompt,
-            config=dict(
-                system_instruction=system_instruction,
-                temperature=0.2, 
-            ),
-        )
+    if any(k in topic_lower or k in text.lower() for k in ("data pribadi", "kontak", "galeri", "pdp", "kominfo")):
+        return UU_PDP_STATUTORY_MAX_FINE
 
-        redrafted_text = response.text.strip().strip('"')
-        return redrafted_text
-
-    except Exception as e:
-        print(f"⚠️ Drafter LLM fallback: {e}")
-        return FALLBACK_INTEREST if "Suku Bunga" in finding.topic else FALLBACK_PDP
+    return 0
 
 
-def legal_drafter_node(state: AuditState) -> dict[str, Any]:
+def risk_evaluator_node(state: AuditState) -> dict[str, Any]:
     findings = state.get("findings", [])
     updated_findings: list[ComplianceMatrixItem] = []
 
     for item in findings:
-        if item.status == "VIOLATION":
-            item.suggested_revision = draft_clause_with_ai(item)
+        if item.status == "VIOLATION" and item.penalty_estimate_idr == 0:
+            item.penalty_estimate_idr = calculate_clause_risk(item)
         updated_findings.append(item)
 
     return {
         "findings": updated_findings,
         "step_count": state.get("step_count", 0) + 1,
-        "status": "audit_completed",
+        "status": "risk_evaluated",
     }
