@@ -5,6 +5,7 @@ from typing import Any
 
 from google import genai
 from qdrant_client import QdrantClient
+import redis.asyncio as aioredis
 
 from app.core.config import get_settings
 
@@ -45,3 +46,19 @@ def get_qdrant_client() -> QdrantClient | None:
     except Exception as exc:
         logger.warning("Failed to initialize Qdrant client: %s", exc)
         return None
+
+
+@lru_cache(maxsize=1)
+def get_redis_client() -> aioredis.Redis | None:
+    try:
+        settings = get_settings()
+        return aioredis.from_url(
+            settings.redis_url.get_secret_value(),
+            socket_connect_timeout=2.0,
+            socket_timeout=2.0,
+            decode_responses=True,
+        )
+    except Exception as exc:
+        logger.warning("Failed to initialize Redis client: %s", exc)
+        return None
+

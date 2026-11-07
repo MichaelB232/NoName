@@ -92,9 +92,18 @@ class AuditJobRequest(BaseModel):
     contract_id: str = Field(min_length=1)
     organization_id: str = Field(min_length=1)
     s3_key: str = Field(min_length=1, description="Must start with the tenant prefix org_<organization_id>/")
+    raw_text: str | None = Field(default=None, description="Direct text to audit if available")
 
 
 class AuditJobAccepted(BaseModel):
     job_id: str
     contract_id: str
     progress_channel: str = Field(description="Redis pub/sub channel the backend relays as SSE")
+
+
+class AuditProgressEvent(BaseModel):
+    current_node: str
+    progress: int = Field(ge=0, le=100)
+    status: Literal["IN_PROGRESS", "COMPLETED", "FAILED"]
+    message: str
+    data: dict[str, Any] | None = None
